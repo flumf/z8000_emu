@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+*.o
+*.dSYM/
+
+# Test generated files
+test/*.bin
+test/*.o
+test/*.coff
+
+# Editor/IDE
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# Claude settings
+.claude/
