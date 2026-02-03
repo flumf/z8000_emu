@@ -6221,7 +6221,7 @@ void z8002_device::ZBA_ssN0_0010_0000_rrrr_ddN0_cccc()
 	}
 	add_to_addr_reg(src, 1);
 	add_to_addr_reg(dst, 1);
-	if (--RW(cnt)) { CLR_V; if (!(m_fcw & F_Z)) m_pc -= 4; } else SET_V;
+	if (--RW(cnt)) CLR_V; else SET_V;
 }
 
 /******************************************
