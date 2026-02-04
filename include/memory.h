@@ -227,7 +227,7 @@ public:
             switch (addr & 0xFFFE) {
                 case 0x0000: val = (addr & 1) ? (m_io_data_reg & 0xFF) : (m_io_data_reg >> 8); break;
                 case 0x0002: val = (addr & 1) ? (m_io_ctrl_reg & 0xFF) : (m_io_ctrl_reg >> 8); break;
-                case 0x0010: val = 0xAA; break;  // Fixed value for block I/O tests
+                case 0x0010: val = (addr & 1) ? 0x55 : 0xAA; break;  // 0x10=0xAA, 0x11=0x55
                 default: val = 0xDE; break;      // Undefined port
             }
         } else {

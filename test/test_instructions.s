@@ -2,7 +2,7 @@
 # Z8000 Instruction Test Suite
 # File: test_instructions.s
 #
-# Comprehensive test of Z8000 instructions (110 tests):
+# Comprehensive test of Z8000 instructions (144 tests):
 #
 # Data Movement:
 #   - LD (register, immediate, indirect, direct address, indexed, base)
@@ -10,21 +10,30 @@
 #   - LDL (long 32-bit load)
 #   - LDK (load 4-bit constant)
 #   - ST/STB (indirect, direct address, indexed, base indexed)
-#   - PUSH, POP (stack operations)
+#   - PUSH, POP (word stack operations)
+#   - PUSHL, POPL (long 32-bit stack operations)
 #
 # Arithmetic:
 #   - ADD, SUB (all addressing modes including indexed)
+#   - ADDB, SUBB (byte add/subtract)
 #   - ADDL, SUBL (32-bit long operations)
-#   - ADC, SBC (add/subtract with carry)
-#   - INC, DEC (increment/decrement by n, including indirect mode)
-#   - NEG, COM (negate, complement, including indirect mode)
-#   - CP, CPL (compare word and long)
+#   - ADC, SBC, ADCB, SBCB (add/subtract with carry)
+#   - INC, DEC, INCB, DECB (increment/decrement by n)
+#   - NEG, COM, NEGB, COMB (negate, complement)
+#   - CP, CPB, CPL (compare word, byte, long)
 #
 # Logical:
 #   - AND, OR, XOR (all addressing modes)
+#   - ANDB, ORB, XORB (byte logical operations)
+#
+# Bit Manipulation:
+#   - BIT (test bit, R/@R/addr/addr(R) modes)
+#   - SET (set bit to 1, R/@R/addr/addr(R) modes)
+#   - RES (reset bit to 0, R/@R/addr/addr(R) modes)
 #
 # Shift/Rotate:
 #   - RL, RR (rotate left/right by 1 or 2)
+#   - RLC, RRC (rotate left/right through carry by 1 or 2)
 #   - SLA, SRA (arithmetic shift left/right)
 #   - SLL, SRL (logical shift left/right)
 #
@@ -45,12 +54,21 @@
 #   - IN, INB (input word/byte)
 #   - OUT, OUTB (output word/byte)
 #   - SIN, SINB, SOUT, SOUTB (special I/O)
+#   - INIR, INIRB (block input with increment)
+#   - OTIR, OTIRB (block output with increment)
 #
-# Test results stored at 0x1F00:
-#   0x1F00: Number of tests passed
-#   0x1F02: Number of tests failed
-#   0x1F04: Current test number
-#   0x1F06: 0xDEAD if all passed, 0xFA11 if failed
+# Memory Map:
+#   0x0100-0x0FF9: Test code
+#   0x0FFA-0x101B: Result storage and halt
+#   0x101C-0x104F: Scratch data area
+#   0x1050+:       Test data sections
+#   0x2300-0x23FF: Result memory
+#
+# Test results stored at 0x2300:
+#   0x2300: Number of tests passed
+#   0x2302: Number of tests failed
+#   0x2304: Current test number
+#   0x2306: 0xDEAD if all passed, 0xFA11 if failed
 # =============================================================================
 
         .text
@@ -63,7 +81,7 @@ _start:
         ld      r0, #0              ! Tests passed
         ld      r1, #0              ! Tests failed
         ld      r2, #0              ! Current test number
-        ld      r14, #0x1000        ! Data pointer
+        ld      r14, #scratch_data  ! Data pointer
         ld      r15, #0x1F00        ! Results pointer
 
 # =============================================================================
@@ -102,8 +120,8 @@ test_ld_ir:
         ld      r2, #3              ! Test number 3
 
         ld      r3, #0x5678
-        ld      r4, #0x1000         ! Address
-        ld      @r4, r3             ! Store 0x5678 at address 0x1000
+        ld      r4, #scratch_data   ! Address
+        ld      @r4, r3             ! Store 0x5678 at scratch_data
 
         ld      r5, @r4             ! R5 <- mem[R4] (should be 0x5678)
 
@@ -121,10 +139,10 @@ test_ld_da:
         ld      r2, #4              ! Test number 4
 
         ld      r3, #0x9ABC
-        ld      r4, #0x1002
-        ld      @r4, r3             ! Store 0x9ABC at 0x1002
+        ld      r4, #scratch_data+2
+        ld      @r4, r3             ! Store 0x9ABC at scratch_data+2
 
-        ld      r5, 0x1002          ! R5 <- mem[0x1002] (direct address load)
+        ld      r5, scratch_data+2  ! R5 <- mem[scratch_data+2] (direct address load)
 
         cp      r5, r3              ! Verify
         jr      z, test_ld_da_pass
@@ -171,8 +189,8 @@ test_add_ir:
         ld      r2, #7              ! Test number 7
 
         ld      r3, #500
-        ld      r4, #0x1004
-        ld      @r4, r3             ! mem[0x1004] = 500
+        ld      r4, #scratch_data+4
+        ld      @r4, r3             ! mem[scratch_data+4] = 500
 
         ld      r5, #500
         add     r5, @r4             ! R5 <- 500 + 500 = 1000
@@ -191,11 +209,11 @@ test_add_da:
         ld      r2, #8              ! Test number 8
 
         ld      r3, #0x0100
-        ld      r4, #0x1006
-        ld      @r4, r3             ! mem[0x1006] = 0x0100
+        ld      r4, #scratch_data+6
+        ld      @r4, r3             ! mem[scratch_data+6] = 0x0100
 
         ld      r5, #0x0F00
-        add     r5, 0x1006          ! R5 <- 0x0F00 + mem[0x1006] = 0x1000
+        add     r5, scratch_data+6  ! R5 <- 0x0F00 + mem[scratch_data+6] = 0x1000
 
         cp      r5, #0x1000         ! Verify
         jr      z, test_add_da_pass
@@ -384,9 +402,9 @@ test_flags_ns_pass:
 test_st_da:
         ld      r2, #21             ! Test number 21
         ld      r3, #0xBEEF         ! Value to store
-        ld      0x1008, r3          ! Store R3 to address 0x1008
+        ld      scratch_data+8, r3  ! Store R3 to scratch_data+8
 
-        ld      r4, 0x1008          ! Load back from 0x1008
+        ld      r4, scratch_data+8  ! Load back
         cp      r4, r3              ! Verify
         jr      z, test_st_da_pass
         inc     r1, #1
@@ -400,11 +418,11 @@ test_st_da_pass:
 test_ld_x:
         ld      r2, #22             ! Test number 22
         ld      r3, #0xCAFE         ! Value to store
-        ld      r4, #0x1010         ! Base address
-        ld      @r4, r3             ! Store 0xCAFE at 0x1010
+        ld      r4, #scratch_data+0x10 ! Base address
+        ld      @r4, r3             ! Store 0xCAFE at scratch_data+0x10
 
         ld      r5, #4              ! Index value
-        ld      r6, 0x100C(r5)      ! Load from 0x100C + 4 = 0x1010
+        ld      r6, scratch_data+0x0C(r5) ! Load from scratch_data+0x0C + 4 = scratch_data+0x10
 
         cp      r6, r3              ! Verify
         jr      z, test_ld_x_pass
@@ -419,11 +437,11 @@ test_ld_x_pass:
 test_ld_ba:
         ld      r2, #23             ! Test number 23
         ld      r3, #0xFACE         ! Value to store
-        ld      r4, #0x1020         ! Address
-        ld      @r4, r3             ! Store 0xFACE at 0x1020
+        ld      r4, #scratch_data+0x20 ! Address
+        ld      @r4, r3             ! Store 0xFACE at scratch_data+0x20
 
-        ld      r5, #0x1000         ! Base register
-        ld      r6, r5(#0x20)       ! Load from R5 + 0x20 = 0x1020
+        ld      r5, #scratch_data   ! Base register
+        ld      r6, r5(#0x20)       ! Load from R5 + 0x20
 
         cp      r6, r3              ! Verify
         jr      z, test_ld_ba_pass
@@ -438,12 +456,12 @@ test_ld_ba_pass:
 test_ld_bx:
         ld      r2, #24             ! Test number 24
         ld      r3, #0xB00B         ! Value to store
-        ld      r4, #0x1030         ! Address
-        ld      @r4, r3             ! Store 0xB00B at 0x1030
+        ld      r4, #scratch_data+0x30 ! Address
+        ld      @r4, r3             ! Store 0xB00B at scratch_data+0x30
 
-        ld      r5, #0x1000         ! Base register
+        ld      r5, #scratch_data   ! Base register
         ld      r6, #0x30           ! Index register
-        ld      r7, r5(r6)          ! Load from R5 + R6 = 0x1030
+        ld      r7, r5(r6)          ! Load from R5 + R6
 
         cp      r7, r3              ! Verify
         jr      z, test_ld_bx_pass
@@ -778,7 +796,7 @@ test_ret_cond_false:
         jp      tests_done
 test_ret_cond_false_pass:
         inc     r0, #1
-        jr      test_djnz
+        jr      test_push_pop
 
 ! Subroutine with conditional return (condition false)
 ret_false_target:
@@ -787,6 +805,295 @@ ret_false_target:
         ret     z                   ! Return if zero (should NOT return)
         ld      r9, #0x9999         ! Should reach here
         ret                         ! Unconditional return
+
+# =============================================================================
+# TEST 42a: PUSH and POP word
+# =============================================================================
+test_push_pop:
+        ld      r2, #142            ! Test number 142 (to not conflict with existing)
+
+        ! Save R15 and set up stack at 0x1E00
+        ld      r14, r15            ! Save results pointer
+        ld      r15, #0x1E00        ! Set up stack pointer
+
+        ! Test 1: Push a value and pop it back
+        ld      r3, #0x1234         ! Value to push
+        push    @r15, r3            ! Push R3 onto stack
+        ld      r3, #0              ! Clear R3
+        pop     r3, @r15            ! Pop into R3
+
+        ! Verify value came back correctly
+        cp      r3, #0x1234
+        jr      nz, test_push_pop_fail
+
+        ! Test 2: Push multiple values and pop in reverse order
+        ld      r3, #0xAAAA
+        ld      r4, #0xBBBB
+        ld      r5, #0xCCCC
+        push    @r15, r3            ! Push 0xAAAA
+        push    @r15, r4            ! Push 0xBBBB
+        push    @r15, r5            ! Push 0xCCCC
+
+        ! Clear registers
+        ld      r3, #0
+        ld      r4, #0
+        ld      r5, #0
+
+        ! Pop in reverse order (LIFO)
+        pop     r5, @r15            ! Should get 0xCCCC
+        pop     r4, @r15            ! Should get 0xBBBB
+        pop     r3, @r15            ! Should get 0xAAAA
+
+        ! Verify LIFO order
+        cp      r5, #0xCCCC
+        jr      nz, test_push_pop_fail
+        cp      r4, #0xBBBB
+        jr      nz, test_push_pop_fail
+        cp      r3, #0xAAAA
+        jr      nz, test_push_pop_fail
+
+        ! Restore R15 and pass
+        ld      r15, r14
+        inc     r0, #1
+        jr      test_pushl_popl
+
+test_push_pop_fail:
+        ld      r15, r14
+        inc     r1, #1
+        jr      test_pushl_popl
+
+# =============================================================================
+# TEST 42b: PUSHL and POPL long (32-bit)
+# =============================================================================
+test_pushl_popl:
+        ld      r2, #143            ! Test number 143
+
+        ! Save R15 and set up stack
+        ld      r14, r15
+        ld      r15, #0x1E00        ! Stack pointer
+
+        ! Load a 32-bit value into RR2 (R2:R3)
+        ld      r2, #0x1234         ! High word
+        ld      r3, #0x5678         ! Low word
+
+        ! Push the long value
+        pushl   @r15, rr2           ! Push 0x12345678
+
+        ! Clear RR2
+        ld      r2, #0
+        ld      r3, #0
+
+        ! Pop the long value
+        popl    rr2, @r15           ! Pop into RR2
+
+        ! Verify both words
+        cp      r2, #0x1234         ! Check high word
+        jr      nz, test_pushl_popl_fail
+        cp      r3, #0x5678         ! Check low word
+        jr      nz, test_pushl_popl_fail
+
+        ! Restore R15 and pass
+        ld      r15, r14
+        inc     r0, #1
+        jr      test_bit_set
+
+test_pushl_popl_fail:
+        ld      r15, r14
+        inc     r1, #1
+        jr      test_bit_set
+
+# =============================================================================
+# TEST 42c: BIT, SET, RES - Bit manipulation
+# =============================================================================
+test_bit_set:
+        ld      r2, #144            ! Test number 144
+
+        ! Test SET - set bit 0
+        ld      r3, #0x0000
+        set     r3, #0x0            ! Set bit 0
+        cp      r3, #0x0001         ! Should be 0x0001
+        jr      nz, test_bit_fail
+
+        ! Test SET - set bit 15
+        ld      r3, #0x0000
+        set     r3, #0xF            ! Set bit 15
+        cp      r3, #0x8000         ! Should be 0x8000
+        jr      nz, test_bit_fail
+
+        ! Test RES - reset bit 0
+        ld      r3, #0xFFFF
+        res     r3, #0x0            ! Reset bit 0
+        cp      r3, #0xFFFE         ! Should be 0xFFFE
+        jr      nz, test_bit_fail
+
+        ! Test RES - reset bit 15
+        ld      r3, #0xFFFF
+        res     r3, #0xF            ! Reset bit 15
+        cp      r3, #0x7FFF         ! Should be 0x7FFF
+        jr      nz, test_bit_fail
+
+        ! Test BIT - bit is set (Z=0)
+        ld      r3, #0x0001
+        bit     r3, #0x0            ! Test bit 0 (should be set, Z=0)
+        jr      z, test_bit_fail    ! Should NOT jump
+
+        ! Test BIT - bit is clear (Z=1)
+        ld      r3, #0xFFFE
+        bit     r3, #0x0            ! Test bit 0 (should be clear, Z=1)
+        jr      nz, test_bit_fail   ! Should NOT jump
+
+        ! Test multiple SET operations
+        ld      r3, #0x0000
+        set     r3, #0x0            ! Set bit 0
+        set     r3, #0x4            ! Set bit 4
+        set     r3, #0x8            ! Set bit 8
+        cp      r3, #0x0111         ! Should be 0x0111
+        jr      nz, test_bit_fail
+
+        ! All bit tests passed
+        inc     r0, #1
+        jr      test_bit_ir
+
+test_bit_fail:
+        inc     r1, #1
+        jr      test_bit_ir
+
+# =============================================================================
+# TEST 42d: BIT/SET/RES indirect mode (@Rs)
+# =============================================================================
+test_bit_ir:
+        ld      r2, #145            ! Test number 145
+
+        ! SET @Rs, #b - Set bit in memory
+        ld      r4, #bit_test_data
+        ld      r3, #0x0000
+        ld      @r4, r3             ! Clear memory
+
+        set     @r4, #0x0           ! Set bit 0
+        ld      r3, @r4
+        cp      r3, #0x0001
+        jr      nz, test_bit_ir_fail
+
+        set     @r4, #0x8           ! Set bit 8
+        ld      r3, @r4
+        cp      r3, #0x0101         ! Both bits set
+        jr      nz, test_bit_ir_fail
+
+        ! RES @Rs, #b - Reset bit in memory
+        ld      r3, #0xFFFF
+        ld      @r4, r3             ! Set all bits
+
+        res     @r4, #0x0           ! Reset bit 0
+        ld      r3, @r4
+        cp      r3, #0xFFFE
+        jr      nz, test_bit_ir_fail
+
+        res     @r4, #0xF           ! Reset bit 15
+        ld      r3, @r4
+        cp      r3, #0x7FFE
+        jr      nz, test_bit_ir_fail
+
+        ! BIT @Rs, #b - Test bit in memory
+        ld      r3, #0x8001         ! Bits 0 and 15 set
+        ld      @r4, r3
+
+        bit     @r4, #0x0           ! Test bit 0 (should be set, Z=0)
+        jr      z, test_bit_ir_fail
+        bit     @r4, #0xF           ! Test bit 15 (should be set, Z=0)
+        jr      z, test_bit_ir_fail
+        bit     @r4, #0x1           ! Test bit 1 (should be clear, Z=1)
+        jr      nz, test_bit_ir_fail
+
+        inc     r0, #1
+        jr      test_bit_da
+
+test_bit_ir_fail:
+        inc     r1, #1
+        jr      test_bit_da
+
+# =============================================================================
+# TEST 42e: BIT/SET/RES direct address mode
+# =============================================================================
+test_bit_da:
+        ld      r2, #146            ! Test number 146
+
+        ! SET address, #b - Set bit at address
+        ld      r4, #bit_test_data
+        ld      r3, #0x0000
+        ld      @r4, r3             ! Clear memory
+
+        set     bit_test_data, #0x4 ! Set bit 4
+        ld      r3, @r4
+        cp      r3, #0x0010
+        jr      nz, test_bit_da_fail
+
+        ! RES address, #b - Reset bit at address
+        ld      r3, #0xFFFF
+        ld      @r4, r3             ! Set all bits
+
+        res     bit_test_data, #0x7 ! Reset bit 7
+        ld      r3, @r4
+        cp      r3, #0xFF7F
+        jr      nz, test_bit_da_fail
+
+        ! BIT address, #b - Test bit at address
+        ld      r3, #0x0100         ! Bit 8 set
+        ld      @r4, r3
+
+        bit     bit_test_data, #0x8 ! Test bit 8 (should be set, Z=0)
+        jr      z, test_bit_da_fail
+        bit     bit_test_data, #0x0 ! Test bit 0 (should be clear, Z=1)
+        jr      nz, test_bit_da_fail
+
+        inc     r0, #1
+        jr      test_bit_x
+
+test_bit_da_fail:
+        inc     r1, #1
+        jr      test_bit_x
+
+# =============================================================================
+# TEST 42f: BIT/SET/RES indexed mode (addr(Rs))
+# =============================================================================
+test_bit_x:
+        ld      r2, #147            ! Test number 147
+
+        ! SET addr(Rs), #b - Set bit at indexed address
+        ld      r5, #2              ! Index offset
+        ld      r4, #bit_test_data
+        inc     r4, #2
+        ld      r3, #0x0000
+        ld      @r4, r3             ! Clear memory at offset
+
+        set     bit_test_data(r5), #0xC  ! Set bit 12 at offset
+        ld      r3, @r4
+        cp      r3, #0x1000
+        jr      nz, test_bit_x_fail
+
+        ! RES addr(Rs), #b - Reset bit at indexed address
+        ld      r3, #0xFFFF
+        ld      @r4, r3             ! Set all bits at offset
+
+        res     bit_test_data(r5), #0xA  ! Reset bit 10 at offset
+        ld      r3, @r4
+        cp      r3, #0xFBFF
+        jr      nz, test_bit_x_fail
+
+        ! BIT addr(Rs), #b - Test bit at indexed address
+        ld      r3, #0x0002         ! Bit 1 set
+        ld      @r4, r3
+
+        bit     bit_test_data(r5), #0x1  ! Test bit 1 (should be set, Z=0)
+        jr      z, test_bit_x_fail
+        bit     bit_test_data(r5), #0x2  ! Test bit 2 (should be clear, Z=1)
+        jr      nz, test_bit_x_fail
+
+        inc     r0, #1
+        jr      test_djnz
+
+test_bit_x_fail:
+        inc     r1, #1
+        jr      test_djnz
 
 # =============================================================================
 # TEST 42: DJNZ (decrement and jump if not zero)
@@ -2140,6 +2447,953 @@ test_inirb_pass:
         inc     r0, #1
 
 # =============================================================================
+# TEST 115: ADDB - Byte add register
+# =============================================================================
+test_addb_r:
+        inc     r2, #1              ! Test 115
+        ld      r3, #0x0000         ! Clear R3
+        ldb     rl3, #0x25          ! RL3 = 0x25
+        ldb     rh4, #0x10          ! RH4 = 0x10
+        addb    rl3, rh4            ! RL3 = 0x25 + 0x10 = 0x35
+        cp      r3, #0x0035         ! Check low byte is 0x35
+        jr      z, test_addb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_addb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 116: SUBB - Byte subtract register
+# =============================================================================
+test_subb_r:
+        inc     r2, #1              ! Test 116
+        ld      r3, #0x0000
+        ldb     rl3, #0x50          ! RL3 = 0x50
+        ldb     rh4, #0x20          ! RH4 = 0x20
+        subb    rl3, rh4            ! RL3 = 0x50 - 0x20 = 0x30
+        cp      r3, #0x0030         ! Check result
+        jr      z, test_subb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_subb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 117: ANDB - Byte AND register
+# =============================================================================
+test_andb_r:
+        inc     r2, #1              ! Test 117
+        ld      r3, #0x0000
+        ldb     rl3, #0xFF          ! RL3 = 0xFF
+        ldb     rh4, #0x0F          ! RH4 = 0x0F
+        andb    rl3, rh4            ! RL3 = 0xFF & 0x0F = 0x0F
+        cp      r3, #0x000F         ! Check result
+        jr      z, test_andb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_andb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 118: ORB - Byte OR register
+# =============================================================================
+test_orb_r:
+        inc     r2, #1              ! Test 118
+        ld      r3, #0x0000
+        ldb     rl3, #0xF0          ! RL3 = 0xF0
+        ldb     rh4, #0x0F          ! RH4 = 0x0F
+        orb     rl3, rh4            ! RL3 = 0xF0 | 0x0F = 0xFF
+        cp      r3, #0x00FF         ! Check result
+        jr      z, test_orb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_orb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 119: XORB - Byte XOR register
+# =============================================================================
+test_xorb_r:
+        inc     r2, #1              ! Test 119
+        ld      r3, #0x0000
+        ldb     rl3, #0xFF          ! RL3 = 0xFF
+        ldb     rh4, #0xAA          ! RH4 = 0xAA
+        xorb    rl3, rh4            ! RL3 = 0xFF ^ 0xAA = 0x55
+        cp      r3, #0x0055         ! Check result
+        jr      z, test_xorb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_xorb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 120: CPB - Byte compare (equal)
+# =============================================================================
+test_cpb_r:
+        inc     r2, #1              ! Test 120
+        ld      r3, #0x0000
+        ldb     rl3, #0x42          ! RL3 = 0x42
+        ldb     rh4, #0x42          ! RH4 = 0x42
+        cpb     rl3, rh4            ! Compare - should set Z
+        jr      z, test_cpb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_cpb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 121: INCB - Byte increment register
+# =============================================================================
+test_incb_r:
+        inc     r2, #1              ! Test 121
+        ld      r3, #0x0000
+        ldb     rl3, #0xFE          ! RL3 = 0xFE
+        incb    rl3, #1             ! RL3 = 0xFE + 1 = 0xFF
+        cp      r3, #0x00FF         ! Check result
+        jr      z, test_incb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_incb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 122: DECB - Byte decrement register
+# =============================================================================
+test_decb_r:
+        inc     r2, #1              ! Test 122
+        ld      r3, #0x0000
+        ldb     rl3, #0x10          ! RL3 = 0x10
+        decb    rl3, #1             ! RL3 = 0x10 - 1 = 0x0F
+        cp      r3, #0x000F         ! Check result
+        jr      z, test_decb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_decb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 123: NEGB - Byte negate register
+# =============================================================================
+test_negb_r:
+        inc     r2, #1              ! Test 123
+        ld      r3, #0x0000
+        ldb     rl3, #0x01          ! RL3 = 0x01
+        negb    rl3                 ! RL3 = -1 = 0xFF (two's complement)
+        cp      r3, #0x00FF         ! Check result
+        jr      z, test_negb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_negb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 124: COMB - Byte complement register
+# =============================================================================
+test_comb_r:
+        inc     r2, #1              ! Test 124
+        ld      r3, #0x0000
+        ldb     rl3, #0xAA          ! RL3 = 0xAA
+        comb    rl3                 ! RL3 = ~0xAA = 0x55
+        cp      r3, #0x0055         ! Check result
+        jr      z, test_comb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_comb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 125: ADCB - Byte add with carry
+# =============================================================================
+test_adcb_r:
+        inc     r2, #1              ! Test 125
+        ld      r3, #0x0000
+        ldb     rl3, #0xFF          ! RL3 = 0xFF
+        ldb     rh4, #0x01          ! RH4 = 0x01
+        addb    rl3, rh4            ! RL3 = 0xFF + 0x01 = 0x00, C=1
+        ldb     rl3, #0x10          ! RL3 = 0x10
+        ldb     rh4, #0x05          ! RH4 = 0x05
+        adcb    rl3, rh4            ! RL3 = 0x10 + 0x05 + 1 (carry) = 0x16
+        cp      r3, #0x0016         ! Check result
+        jr      z, test_adcb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_adcb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 126: SBCB - Byte subtract with borrow
+# =============================================================================
+test_sbcb_r:
+        inc     r2, #1              ! Test 126
+        ld      r3, #0x0000
+        ldb     rl3, #0x00          ! RL3 = 0x00
+        ldb     rh4, #0x01          ! RH4 = 0x01
+        subb    rl3, rh4            ! RL3 = 0x00 - 0x01 = 0xFF, C=1 (borrow)
+        ldb     rl3, #0x20          ! RL3 = 0x20
+        ldb     rh4, #0x10          ! RH4 = 0x10
+        sbcb    rl3, rh4            ! RL3 = 0x20 - 0x10 - 1 (borrow) = 0x0F
+        cp      r3, #0x000F         ! Check result
+        jr      z, test_sbcb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_sbcb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 127: ADDB immediate
+# =============================================================================
+test_addb_im:
+        inc     r2, #1              ! Test 127
+        ld      r3, #0x0000
+        ldb     rl3, #0x20          ! RL3 = 0x20
+        addb    rl3, #0x15          ! RL3 = 0x20 + 0x15 = 0x35
+        cp      r3, #0x0035         ! Check result
+        jr      z, test_addb_im_pass
+        inc     r1, #1
+        jp      tests_done
+test_addb_im_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 128: SUBB immediate
+# =============================================================================
+test_subb_im:
+        inc     r2, #1              ! Test 128
+        ld      r3, #0x0000
+        ldb     rl3, #0x50          ! RL3 = 0x50
+        subb    rl3, #0x25          ! RL3 = 0x50 - 0x25 = 0x2B
+        cp      r3, #0x002B         ! Check result
+        jr      z, test_subb_im_pass
+        inc     r1, #1
+        jp      tests_done
+test_subb_im_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 129: RLC - Rotate Left through Carry (word), C=0
+# Initial: R3=0x8001, C=0 -> R3=0x0002, C=1 (MSB went to C, old C(0) to LSB)
+# =============================================================================
+test_rlc_1:
+        inc     r2, #1              ! Test 129
+        sub     r4, r4              ! Clear carry (R4=0, C=0)
+        ld      r3, #0x8001         ! R3 = 0x8001
+        rlc     r3, #1              ! RLC: MSB(1)->C, C(0)->LSB, R3=0x0002
+        cp      r3, #0x0002         ! Check result
+        jr      z, test_rlc_1_pass
+        inc     r1, #1
+        jp      tests_done
+test_rlc_1_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 130: RLC - Rotate Left through Carry (word), C=1
+# Initial: R3=0x0001, C=1 -> R3=0x0003, C=0
+# Use 0xFFFF + 1 = 0 to set carry, then load R3
+# =============================================================================
+test_rlc_2:
+        inc     r2, #1              ! Test 130
+        ld      r3, #0xFFFF
+        add     r3, #1              ! 0xFFFF + 1 = 0, sets carry
+        ld      r3, #0x0001         ! R3 = 0x0001 (LD doesn't affect carry)
+        rlc     r3, #1              ! RLC: MSB(0)->C, C(1)->LSB, R3=0x0003
+        cp      r3, #0x0003         ! Check result
+        jr      z, test_rlc_2_pass
+        inc     r1, #1
+        jp      tests_done
+test_rlc_2_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 131: RRC - Rotate Right through Carry (word), C=0
+# Initial: R3=0x8001, C=0 -> R3=0x4000, C=1 (LSB went to C, old C(0) to MSB)
+# =============================================================================
+test_rrc_1:
+        inc     r2, #1              ! Test 131
+        sub     r4, r4              ! Clear carry
+        ld      r3, #0x8001         ! R3 = 0x8001
+        rrc     r3, #1              ! RRC: LSB(1)->C, C(0)->MSB, R3=0x4000
+        cp      r3, #0x4000         ! Check result
+        jr      z, test_rrc_1_pass
+        inc     r1, #1
+        jp      tests_done
+test_rrc_1_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 132: RRC - Rotate Right through Carry (word), C=1
+# Initial: R3=0x0002, C=1 -> R3=0x8001, C=0
+# =============================================================================
+test_rrc_2:
+        inc     r2, #1              ! Test 132
+        ld      r3, #0xFFFF
+        add     r3, #1              ! Set carry
+        ld      r3, #0x0002         ! R3 = 0x0002
+        rrc     r3, #1              ! RRC: LSB(0)->C, C(1)->MSB, R3=0x8001
+        cp      r3, #0x8001         ! Check result
+        jr      z, test_rrc_2_pass
+        inc     r1, #1
+        jp      tests_done
+test_rrc_2_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 133: RLCB - Rotate Left through Carry (byte)
+# Initial: RL3=0x81, C=0 -> RL3=0x02, C=1
+# =============================================================================
+test_rlcb_1:
+        inc     r2, #1              ! Test 133
+        sub     r4, r4              ! Clear carry
+        ld      r3, #0x0000
+        ldb     rl3, #0x81          ! RL3 = 0x81
+        rlcb    rl3, #1             ! RLCB: bit7(1)->C, C(0)->bit0, RL3=0x02
+        cp      r3, #0x0002         ! Check result (R3 = 0x0002)
+        jr      z, test_rlcb_1_pass
+        inc     r1, #1
+        jp      tests_done
+test_rlcb_1_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 134: RRCB - Rotate Right through Carry (byte)
+# Initial: RL3=0x81, C=0 -> RL3=0x40, C=1
+# =============================================================================
+test_rrcb_1:
+        inc     r2, #1              ! Test 134
+        sub     r4, r4              ! Clear carry
+        ld      r3, #0x0000
+        ldb     rl3, #0x81          ! RL3 = 0x81
+        rrcb    rl3, #1             ! RRCB: bit0(1)->C, C(0)->bit7, RL3=0x40
+        cp      r3, #0x0040         ! Check result (R3 = 0x0040)
+        jr      z, test_rrcb_1_pass
+        inc     r1, #1
+        jp      tests_done
+test_rrcb_1_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 135: RLC #2 - Rotate Left through Carry by 2 (word)
+# Initial: R3=0xC000, C=0 -> after 2 RLC: R3=0x0001, C=1
+# Step 1: 0xC000,C=0 -> 0x8000,C=1
+# Step 2: 0x8000,C=1 -> 0x0001,C=1
+# =============================================================================
+test_rlc_by2:
+        inc     r2, #1              ! Test 135
+        sub     r4, r4              ! Clear carry
+        ld      r3, #0xC000         ! R3 = 0xC000
+        rlc     r3, #2              ! RLC by 2
+        cp      r3, #0x0001         ! Check result
+        jr      z, test_rlc_by2_pass
+        inc     r1, #1
+        jp      tests_done
+test_rlc_by2_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 136: RRC #2 - Rotate Right through Carry by 2 (word)
+# Initial: R3=0x0003, C=0 -> after 2 RRC: R3=0x8000, C=1
+# Step 1: 0x0003,C=0 -> 0x0001,C=1
+# Step 2: 0x0001,C=1 -> 0x8000,C=1
+# =============================================================================
+test_rrc_by2:
+        inc     r2, #1              ! Test 136
+        sub     r4, r4              ! Clear carry
+        ld      r3, #0x0003         ! R3 = 0x0003
+        rrc     r3, #2              ! RRC by 2
+        cp      r3, #0x8000         ! Check result
+        jr      z, test_rrc_by2_pass
+        inc     r1, #1
+        jp      tests_done
+test_rrc_by2_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 137: LDB Base Indexed - LDB Rd, Rs(Rn)
+# Load a byte using base register + index register addressing
+# -----------------------------------------------------------------------------
+        ld      r2, #137            ! Test 137
+        ld      r5, #ldb_based_data ! Base address
+        ld      r6, #3              ! Index (offset to 4th byte = 0x44)
+        ld      r3, #0              ! Clear
+        ldb     rl3, r5(r6)         ! LDB RL3, R5(R6)
+        cp      r3, #0x0044         ! Check (RL3 should be 0x44 in low byte position)
+        jr      z, test_ldb_bx_pass
+test_ldb_bx_fail:
+        inc     r1, #1
+        jp      tests_done
+test_ldb_bx_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 138: STB Base Address - LDB Rd(#disp), Rs (store byte with displacement)
+# Store a byte to base register + displacement address
+# -----------------------------------------------------------------------------
+        ld      r2, #138            ! Test 138
+        ld      r5, #scratch_data   ! Base address
+        ld      r3, #0xAB00         ! Value to store (RH3 = 0xAB)
+        ldb     r5(#0x10), rh3      ! Store RH3 to R5+0x10
+        ld      r4, #0
+        ldb     rh4, r5(#0x10)      ! Read back
+        cp      r4, #0xAB00         ! Verify
+        jr      z, test_stb_ba_pass
+test_stb_ba_fail:
+        inc     r1, #1
+        jp      tests_done
+test_stb_ba_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 139: STB Base Indexed - LDB Rd(Rn), Rs (store byte with index)
+# Store a byte to base register + index register address
+# -----------------------------------------------------------------------------
+        ld      r2, #139            ! Test 139
+        ld      r5, #scratch_data   ! Base address
+        ld      r6, #2              ! Index = 2 (even offset for simpler testing)
+        ld      r3, #0x00EF         ! Value to store (RL3 = 0xEF)
+        ldb     r5(r6), rl3         ! Store RL3 to R5+R6
+        ld      r4, #0
+        ldb     rl4, scratch_data+2 ! Read back using standard LDB DA
+        cp      r4, #0x00EF         ! Verify
+        jr      z, test_stb_bx_pass
+test_stb_bx_fail:
+        inc     r1, #1
+        jp      tests_done
+test_stb_bx_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 140: LDL Base Indexed - LDL RRd, Rs(Rn)
+# Load a 32-bit long using base register + index register addressing
+# Use RR8 instead of RR2 to avoid clobbering test counter (R2)
+# -----------------------------------------------------------------------------
+        ld      r2, #140            ! Test 140
+        ld      r5, #ldl_based_data ! Base address
+        ld      r6, #4              ! Index (offset to second long)
+        ld      r8, #0              ! Clear
+        ld      r9, #0
+        ldl     rr8, r5(r6)         ! LDL RR8, R5(R6)
+        cp      r8, #0x5555         ! Check high word
+        jr      nz, test_ldl_bx_fail
+        cp      r9, #0x6666         ! Check low word
+        jr      z, test_ldl_bx_pass
+test_ldl_bx_fail:
+        inc     r1, #1
+        jp      tests_done
+test_ldl_bx_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 141: STL Base Address - LDL Rd(#disp), RRs (store long with displacement)
+# Store a 32-bit long to base register + displacement address
+# Use RR8 instead of RR2 to avoid clobbering test counter
+# -----------------------------------------------------------------------------
+        ld      r2, #141            ! Test 141
+        ld      r5, #scratch_data   ! Base address
+        ld      r8, #0xABCD         ! High word
+        ld      r9, #0xEF01         ! Low word
+        ldl     r5(#0x14), rr8      ! Store RR8 to R5+0x14
+        ldl     rr6, r5(#0x14)      ! Read back
+        cp      r6, #0xABCD         ! Check high word
+        jr      nz, test_stl_ba_fail
+        cp      r7, #0xEF01         ! Check low word
+        jr      z, test_stl_ba_pass
+test_stl_ba_fail:
+        inc     r1, #1
+        jp      tests_done
+test_stl_ba_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 142: STL Base Indexed - LDL Rd(Rn), RRs (store long with index)
+# Store a 32-bit long to base register + index register address
+# -----------------------------------------------------------------------------
+        ld      r2, #142            ! Test 142
+        ld      r5, #scratch_data   ! Base address
+        ld      r6, #0x18           ! Index
+        ld      r8, #0x1234         ! High word
+        ld      r9, #0x5678         ! Low word
+        ldl     r5(r6), rr8         ! Store RR8 to R5+R6
+        ldl     rr10, r5(r6)        ! Read back
+        cp      r10, #0x1234        ! Check high word
+        jr      nz, test_stl_bx_fail
+        cp      r11, #0x5678        ! Check low word
+        jr      z, test_stl_bx_pass
+test_stl_bx_fail:
+        inc     r1, #1
+        jp      tests_done
+test_stl_bx_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 143: CALL @Rd - Call Indirect
+# Call a subroutine using indirect addressing (address in register)
+# -----------------------------------------------------------------------------
+        ld      r2, #143            ! Test 143
+        ld      r5, #call_target_1  ! Load target address into R5
+        call    @r5                 ! CALL @R5
+        jr      test_call_ir_pass   ! Should return here
+test_call_ir_fail:
+        inc     r1, #1
+        jp      tests_done
+test_call_ir_pass:
+        inc     r0, #1
+
+# -----------------------------------------------------------------------------
+# Test 144: CALL address(Rd) - Call Indexed
+# Call a subroutine using indexed addressing (base address + register offset)
+# -----------------------------------------------------------------------------
+        ld      r2, #144            ! Test 144
+        ld      r5, #call_offset    ! Index value (offset from call_base)
+        call    call_base(r5)       ! CALL call_base(R5)
+        jr      test_call_x_pass    ! Should return here
+test_call_x_fail:
+        inc     r1, #1
+        jp      tests_done
+test_call_x_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 145: CLR Rd - Clear register
+# =============================================================================
+test_clr_r:
+        ld      r2, #145            ! Test 145
+        ld      r3, #0xABCD         ! Set non-zero value
+        clr     r3                  ! Clear it
+        cp      r3, #0              ! Should be zero
+        jr      z, test_clr_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_clr_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 146: CLR @Rd - Clear memory indirect
+# =============================================================================
+test_clr_ir:
+        ld      r2, #146            ! Test 146
+        ld      r5, #clr_test_data  ! Address
+        ld      r3, #0x1234
+        ld      @r5, r3             ! Store non-zero value
+        clr     @r5                 ! Clear it
+        ld      r4, @r5             ! Read back
+        cp      r4, #0              ! Should be zero
+        jr      z, test_clr_ir_pass
+        inc     r1, #1
+        jp      tests_done
+test_clr_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 147: CLR address - Clear memory direct
+# =============================================================================
+test_clr_da:
+        ld      r2, #147            ! Test 147
+        ld      r3, #0x5678
+        ld      clr_test_data, r3   ! Store non-zero value
+        clr     clr_test_data       ! Clear it
+        ld      r4, clr_test_data   ! Read back
+        cp      r4, #0              ! Should be zero
+        jr      z, test_clr_da_pass
+        inc     r1, #1
+        jp      tests_done
+test_clr_da_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 148: CLR addr(Rd) - Clear memory indexed
+# =============================================================================
+test_clr_x:
+        ld      r2, #148            ! Test 148
+        ld      r5, #4              ! Index
+        ld      r3, #0x9ABC
+        ld      clr_test_data(r5), r3  ! Store non-zero value at offset 4
+        clr     clr_test_data(r5)      ! Clear it
+        ld      r4, clr_test_data(r5)  ! Read back
+        cp      r4, #0              ! Should be zero
+        jr      z, test_clr_x_pass
+        inc     r1, #1
+        jp      tests_done
+test_clr_x_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 149: CLRB Rbd - Clear byte register
+# =============================================================================
+test_clrb_r:
+        ld      r2, #149            ! Test 149
+        ld      r3, #0xABCD         ! Set non-zero value
+        clrb    rl3                 ! Clear low byte
+        cp      r3, #0xAB00         ! High byte unchanged, low byte zero
+        jr      z, test_clrb_r_pass
+        inc     r1, #1
+        jp      tests_done
+test_clrb_r_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 150: CLRB @Rd - Clear byte memory indirect
+# =============================================================================
+test_clrb_ir:
+        ld      r2, #150            ! Test 150
+        ld      r5, #clr_test_data
+        ld      r3, #0x1234
+        ld      @r5, r3             ! Store non-zero value
+        clrb    @r5                 ! Clear high byte (even address)
+        ld      r4, @r5             ! Read back
+        cp      r4, #0x0034         ! High byte cleared
+        jr      z, test_clrb_ir_pass
+        inc     r1, #1
+        jp      tests_done
+test_clrb_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 151: JP cc, addr(Rd) - Indexed jump (taken)
+# =============================================================================
+test_jp_x:
+        ld      r2, #151            ! Test 151
+        ld      r5, #jp_x_offset    ! Offset to target
+        ld      r3, #0              ! Set zero for condition
+        cp      r3, #0              ! Set Z flag
+        jp      z, jp_x_base(r5)    ! Should jump
+        inc     r1, #1              ! Should not reach here
+        jp      tests_done
+jp_x_target:
+        jr      test_jp_x_pass
+        .align  2
+jp_x_base:
+        .word   0                   ! Padding
+jp_x_offset     =       jp_x_target - jp_x_base
+test_jp_x_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 152: JP cc, addr(Rd) - Indexed jump (not taken)
+# =============================================================================
+test_jp_x_notaken:
+        ld      r2, #152            ! Test 152
+        ld      r5, #0              ! Offset
+        ld      r3, #1              ! Set non-zero
+        cp      r3, #0              ! Clear Z flag (NZ)
+        jp      z, jp_x_base(r5)    ! Should NOT jump (Z not set)
+        jr      test_jp_x_notaken_pass
+        inc     r1, #1
+        jp      tests_done
+test_jp_x_notaken_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 153: PUSH @Rd, #imm - Push immediate
+# =============================================================================
+test_push_im:
+        ld      r2, #153            ! Test 153
+        ld      r14, #test_stack_top ! Use R14 as temp stack
+        push    @r14, #0xBEEF       ! Push immediate
+        ld      r3, @r14            ! Read from stack
+        cp      r3, #0xBEEF
+        jr      z, test_push_im_pass
+        inc     r1, #1
+        jp      tests_done
+test_push_im_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 154: PUSH @Rd, @Rs - Push indirect
+# =============================================================================
+test_push_ir:
+        ld      r2, #154            ! Test 154
+        ld      r14, #test_stack_top
+        ld      r5, #push_test_data
+        ld      r3, #0xCAFE
+        ld      @r5, r3             ! Store value at push_test_data
+        push    @r14, @r5           ! Push value from @R5
+        ld      r4, @r14            ! Read from stack
+        cp      r4, #0xCAFE
+        jr      z, test_push_ir_pass
+        inc     r1, #1
+        jp      tests_done
+test_push_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 155: PUSH @Rd, address - Push from memory
+# =============================================================================
+test_push_da:
+        ld      r2, #155            ! Test 155
+        ld      r14, #test_stack_top
+        ld      r3, #0xDEAD
+        ld      push_test_data, r3  ! Store value
+        push    @r14, push_test_data ! Push value from memory
+        ld      r4, @r14            ! Read from stack
+        cp      r4, #0xDEAD
+        jr      z, test_push_da_pass
+        inc     r1, #1
+        jp      tests_done
+test_push_da_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 156: PUSH @Rd, addr(Rs) - Push from indexed address
+# =============================================================================
+test_push_x:
+        ld      r2, #156            ! Test 156
+        ld      r14, #test_stack_top
+        ld      r5, #2              ! Index
+        ld      r3, #0xFACE
+        ld      push_test_data(r5), r3  ! Store at offset 2
+        push    @r14, push_test_data(r5) ! Push from indexed address
+        ld      r4, @r14            ! Read from stack
+        cp      r4, #0xFACE
+        jr      z, test_push_x_pass
+        inc     r1, #1
+        jp      tests_done
+test_push_x_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 157: POP @Rd, @Rs - Pop to indirect address
+# =============================================================================
+test_pop_ir:
+        ld      r2, #157            ! Test 157
+        ld      r14, #test_stack_top
+        ld      r3, #0x1111
+        push    @r14, r3            ! Push value
+        ld      r5, #pop_test_data  ! Destination address
+        clr     @r5                 ! Clear destination
+        pop     @r5, @r14           ! Pop to @R5
+        ld      r4, @r5             ! Read back
+        cp      r4, #0x1111
+        jr      z, test_pop_ir_pass
+        inc     r1, #1
+        jp      tests_done
+test_pop_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 158: POP address, @Rs - Pop to memory
+# =============================================================================
+test_pop_da:
+        ld      r2, #158            ! Test 158
+        ld      r14, #test_stack_top
+        ld      r3, #0x2222
+        push    @r14, r3            ! Push value
+        clr     pop_test_data       ! Clear destination
+        pop     pop_test_data, @r14 ! Pop to memory
+        ld      r4, pop_test_data   ! Read back
+        cp      r4, #0x2222
+        jr      z, test_pop_da_pass
+        inc     r1, #1
+        jp      tests_done
+test_pop_da_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 159: POP addr(Rd), @Rs - Pop to indexed address
+# =============================================================================
+test_pop_x:
+        ld      r2, #159            ! Test 159
+        ld      r14, #test_stack_top
+        ld      r3, #0x3333
+        push    @r14, r3            ! Push value
+        ld      r5, #2              ! Index
+        clr     pop_test_data(r5)   ! Clear destination
+        pop     pop_test_data(r5), @r14 ! Pop to indexed
+        ld      r4, pop_test_data(r5)   ! Read back
+        cp      r4, #0x3333
+        jr      z, test_pop_x_pass
+        inc     r1, #1
+        jp      tests_done
+test_pop_x_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 160: PUSHL @Rd, @Rs - Push long indirect
+# =============================================================================
+test_pushl_ir:
+        ld      r2, #160            ! Test 160
+        ld      r14, #test_stack_top
+        ld      r5, #pushl_test_data
+        ld      r8, #0xAAAA
+        ld      r9, #0xBBBB
+        ldl     @r5, rr8            ! Store long at address
+        pushl   @r14, @r5           ! Push long from @R5
+        ldl     rr6, @r14           ! Read back from stack
+        cp      r6, #0xAAAA
+        jr      nz, test_pushl_ir_fail
+        cp      r7, #0xBBBB
+        jr      z, test_pushl_ir_pass
+test_pushl_ir_fail:
+        inc     r1, #1
+        jp      tests_done
+test_pushl_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 161: PUSHL @Rd, address - Push long from memory
+# =============================================================================
+test_pushl_da:
+        ld      r2, #161            ! Test 161
+        ld      r14, #test_stack_top
+        ld      r8, #0xCCCC
+        ld      r9, #0xDDDD
+        ldl     pushl_test_data, rr8 ! Store long
+        pushl   @r14, pushl_test_data ! Push long from memory
+        ldl     rr6, @r14           ! Read back
+        cp      r6, #0xCCCC
+        jr      nz, test_pushl_da_fail
+        cp      r7, #0xDDDD
+        jr      z, test_pushl_da_pass
+test_pushl_da_fail:
+        inc     r1, #1
+        jp      tests_done
+test_pushl_da_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 162: POPL @Rd, @Rs - Pop long to indirect
+# =============================================================================
+test_popl_ir:
+        ld      r2, #162            ! Test 162
+        ld      r14, #test_stack_top
+        ld      r8, #0x1234
+        ld      r9, #0x5678
+        pushl   @r14, rr8           ! Push long
+        ld      r5, #popl_test_data
+        ld      r10, #0             ! Clear R10
+        ld      r11, #0             ! Clear R11
+        ldl     @r5, rr10           ! Store zeros (don't use R0!)
+        popl    @r5, @r14           ! Pop to @R5
+        ldl     rr6, @r5            ! Read back
+        cp      r6, #0x1234
+        jr      nz, test_popl_ir_fail
+        cp      r7, #0x5678
+        jr      z, test_popl_ir_pass
+test_popl_ir_fail:
+        inc     r1, #1
+        jp      tests_done
+test_popl_ir_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 163: POPL address, @Rs - Pop long to memory
+# =============================================================================
+test_popl_da:
+        ld      r2, #163            ! Test 163
+        ld      r14, #test_stack_top
+        ld      r8, #0xABCD
+        ld      r9, #0xEF01
+        pushl   @r14, rr8           ! Push long
+        sub     r6, r6
+        sub     r7, r7
+        ldl     popl_test_data, rr6 ! Clear destination
+        popl    popl_test_data, @r14 ! Pop to memory
+        ldl     rr6, popl_test_data ! Read back
+        cp      r6, #0xABCD
+        jr      nz, test_popl_da_fail
+        cp      r7, #0xEF01
+        jr      z, test_popl_da_pass
+test_popl_da_fail:
+        inc     r1, #1
+        jp      tests_done
+test_popl_da_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 164: EXTSB - Sign extend byte to word (positive)
+# =============================================================================
+test_extsb_pos:
+        ld      r2, #164            ! Test 164
+        ld      r4, #0x007F         ! Positive byte (0x7F = 127)
+        extsb   r4                  ! Sign extend should keep upper byte 0x00
+        cp      r4, #0x007F
+        jr      z, test_extsb_pos_pass
+        inc     r1, #1
+        jp      tests_done
+test_extsb_pos_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 165: EXTSB - Sign extend byte to word (negative)
+# =============================================================================
+test_extsb_neg:
+        ld      r2, #165            ! Test 165
+        ld      r5, #0x0080         ! Negative byte (0x80 = -128)
+        extsb   r5                  ! Sign extend should set upper byte to 0xFF
+        cp      r5, #0xFF80
+        jr      z, test_extsb_neg_pass
+        inc     r1, #1
+        jp      tests_done
+test_extsb_neg_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 166: EXTSB - Sign extend 0xFF (all ones)
+# =============================================================================
+test_extsb_ff:
+        ld      r2, #166            ! Test 166
+        ld      r6, #0x00FF         ! -1 as byte
+        extsb   r6                  ! Should become 0xFFFF
+        cp      r6, #0xFFFF
+        jr      z, test_extsb_ff_pass
+        inc     r1, #1
+        jp      tests_done
+test_extsb_ff_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 167: EXTS - Sign extend word to long (positive)
+# =============================================================================
+test_exts_pos:
+        ld      r2, #167            ! Test 167
+        ld      r8, #0x1234         ! R8 = will be high word (result)
+        ld      r9, #0x7FFF         ! R9 = low word (positive, bit 15=0)
+        exts    rr8                 ! R8 should become 0x0000
+        cp      r8, #0x0000
+        jr      nz, test_exts_pos_fail
+        cp      r9, #0x7FFF         ! R9 should be unchanged
+        jr      z, test_exts_pos_pass
+test_exts_pos_fail:
+        inc     r1, #1
+        jp      tests_done
+test_exts_pos_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 168: EXTS - Sign extend word to long (negative)
+# =============================================================================
+test_exts_neg:
+        ld      r2, #168            ! Test 168
+        ld      r10, #0x0000        ! R10 = will be high word (result)
+        ld      r11, #0x8000        ! R11 = low word (negative, bit 15=1)
+        exts    rr10                ! R10 should become 0xFFFF
+        cp      r10, #0xFFFF
+        jr      nz, test_exts_neg_fail
+        cp      r11, #0x8000        ! R11 should be unchanged
+        jr      z, test_exts_neg_pass
+test_exts_neg_fail:
+        inc     r1, #1
+        jp      tests_done
+test_exts_neg_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 169: EXTS - Sign extend 0xFFFF (all ones)
+# =============================================================================
+test_exts_ff:
+        ld      r2, #169            ! Test 169
+        ld      r4, #0x0000         ! R4 = will be high word
+        ld      r5, #0xFFFF         ! R5 = -1 as word
+        exts    rr4                 ! R4 should become 0xFFFF
+        cp      r4, #0xFFFF
+        jr      nz, test_exts_ff_fail
+        cp      r5, #0xFFFF         ! R5 should be unchanged
+        jr      z, test_exts_ff_pass
+test_exts_ff_fail:
+        inc     r1, #1
+        jp      tests_done
+test_exts_ff_pass:
+        inc     r0, #1
+
+# =============================================================================
 # All tests complete - store results
 # =============================================================================
 tests_done:
@@ -2162,8 +3416,49 @@ tests_failed:
         ld      @r15, r3            ! Store at 0x1F06
 
 halt_loop:
-        halt
-	#jr      halt_loop           ! Infinite loop
+        halt                        ! Stop processor
+
+# =============================================================================
+# Scratch data section for general tests (was using hardcoded 0x1000)
+# =============================================================================
+        .align  2
+
+scratch_data:
+        .word   0x0000              ! scratch_data+0x00
+        .word   0x0000              ! scratch_data+0x02
+        .word   0x0000              ! scratch_data+0x04
+        .word   0x0000              ! scratch_data+0x06
+        .word   0x0000              ! scratch_data+0x08
+        .word   0x0000              ! scratch_data+0x0A
+        .word   0x0000              ! scratch_data+0x0C
+        .word   0x0000              ! scratch_data+0x0E
+        .word   0x0000              ! scratch_data+0x10
+        .word   0x0000              ! scratch_data+0x12
+        .word   0x0000              ! scratch_data+0x14
+        .word   0x0000              ! scratch_data+0x16
+        .word   0x0000              ! scratch_data+0x18
+        .word   0x0000              ! scratch_data+0x1A
+        .word   0x0000              ! scratch_data+0x1C
+        .word   0x0000              ! scratch_data+0x1E
+        .word   0x0000              ! scratch_data+0x20
+        .word   0x0000              ! scratch_data+0x22
+        .word   0x0000              ! scratch_data+0x24
+        .word   0x0000              ! scratch_data+0x26
+        .word   0x0000              ! scratch_data+0x28
+        .word   0x0000              ! scratch_data+0x2A
+        .word   0x0000              ! scratch_data+0x2C
+        .word   0x0000              ! scratch_data+0x2E
+        .word   0x0000              ! scratch_data+0x30
+        .word   0x0000              ! scratch_data+0x32
+
+# =============================================================================
+# Data section for bit manipulation tests
+# =============================================================================
+        .align  2
+
+bit_test_data:
+        .word   0x0000              ! Test data for bit operations
+        .word   0x0000              ! Second word for indexed mode tests
 
 # =============================================================================
 # Data section for block move tests
@@ -2325,3 +3620,43 @@ inirb_dst_data:
         .word   0xFFFF              ! Destination for INIRB (4 bytes)
         .word   0xFFFF
 
+# Call target for CALL @Rd test (indirect call)
+call_target_1:
+        ret                         ! Simple return
+
+# Jump table base for CALL address(Rd) test (indexed call)
+call_base:
+        .word   0x0000              ! Padding (offset 0)
+call_target_2:
+        ret                         ! Target at offset call_offset
+
+# Offset from call_base to call_target_2
+        .equ    call_offset, call_target_2 - call_base
+
+# Data for CLR tests
+        .align  2
+clr_test_data:
+        .word   0x0000              ! CLR test data
+        .word   0x0000              ! CLR indexed test data
+
+# Data for PUSH/POP tests
+        .align  2
+push_test_data:
+        .word   0x0000              ! PUSH source data
+        .word   0x0000              ! PUSH indexed source
+
+pop_test_data:
+        .word   0x0000              ! POP destination
+        .word   0x0000              ! POP indexed destination
+
+pushl_test_data:
+        .long   0x00000000          ! PUSHL source data
+
+popl_test_data:
+        .long   0x00000000          ! POPL destination
+
+# Test stack area (separate from main stack)
+        .align  2
+test_stack_base:
+        .space  32                  ! 32 bytes of stack space
+test_stack_top:

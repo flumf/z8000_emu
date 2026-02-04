@@ -32,7 +32,7 @@ echo "Z8000 Instruction Regression Test"
 echo "=========================================="
 
 # Run emulator and capture output
-# Use -d to dump memory, we'll parse the results from 0x1F00
+# Use -d to dump memory, we'll parse the results from 0x2300
 OUTPUT=$("$EMU" "$TEST_BIN" 2>&1)
 
 # Extract register values from output
