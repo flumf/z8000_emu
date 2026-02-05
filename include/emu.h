@@ -98,8 +98,6 @@ constexpr int AS_OPCODES = 3;
 #define DEFINE_DEVICE_TYPE(Type, Class, ShortName, FullName)
 
 // Forward declarations
-class Memory;
-class IOPorts;
 class z8000_disassembler;
 
 // Stub device callback types
@@ -142,26 +140,34 @@ constexpr u32 STEP_OVER = 0x10000000;
 constexpr u32 STEP_OUT  = 0x20000000;
 constexpr u32 SUPPORTED = 0x00000000;
 
-// Data buffer for disassembler - reads opcodes from memory
+// Forward declaration for bus-based data_buffer mode
+class z8000_memory_bus;
+
+// Data buffer for disassembler - reads opcodes from memory.
+// Supports two modes: raw pointer or abstract bus interface.
 class data_buffer {
 public:
-    data_buffer() : m_data(nullptr), m_size(0) {}
-    data_buffer(const u8* data, size_t size) : m_data(data), m_size(size) {}
+    data_buffer() : m_data(nullptr), m_size(0), m_bus(nullptr) {}
+    data_buffer(const u8* data, size_t size) : m_data(data), m_size(size), m_bus(nullptr) {}
 
     void set(const u8* data, size_t size) {
         m_data = data;
         m_size = size;
+        m_bus = nullptr;
     }
 
-    u16 r16(offs_t addr) const {
-        if (!m_data || addr + 1 >= m_size) return 0xFFFF;
-        // Big-endian read
-        return (static_cast<u16>(m_data[addr]) << 8) | m_data[addr + 1];
+    void set_bus(z8000_memory_bus* bus) {
+        m_bus = bus;
+        m_data = nullptr;
+        m_size = 0;
     }
+
+    u16 r16(offs_t addr) const;
 
 private:
     const u8* m_data;
     size_t m_size;
+    z8000_memory_bus* m_bus;
 };
 
 // Utility namespace for MAME compatibility

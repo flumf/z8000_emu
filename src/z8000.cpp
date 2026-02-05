@@ -15,6 +15,16 @@
 #include <cassert>
 #include <sstream>
 
+// data_buffer::r16 implementation (needs z8000_memory_bus to be complete)
+u16 data_buffer::r16(offs_t addr) const {
+    if (m_bus) {
+        return m_bus->read_word(addr);
+    }
+    if (!m_data || addr + 1 >= m_size) return 0xFFFF;
+    // Big-endian read
+    return (static_cast<u16>(m_data[addr]) << 8) | m_data[addr + 1];
+}
+
 //#define VERBOSE 1
 
 #ifndef VERBOSE
@@ -29,8 +39,8 @@ z8002_device::z8002_device()
     , m_nspseg(0), m_nspoff(0), m_irq_req(0), m_irq_vec(0), m_op_valid(0)
     , m_nmi_state(0), m_mi(0), m_halt(false), m_icount(0), m_total_cycles(0)
     , m_vector_mult(1)
-    , m_program_region(nullptr), m_data_region(nullptr), m_stack_region(nullptr)
-    , m_io_ports(nullptr), m_trace(false), m_reg_trace(false), m_disasm(nullptr)
+    , m_program_bus(nullptr), m_data_bus(nullptr), m_stack_bus(nullptr)
+    , m_io_bus(nullptr), m_trace(false), m_reg_trace(false), m_disasm(nullptr)
 {
     clear_internal_state();
     init_tables();
@@ -42,8 +52,8 @@ z8002_device::z8002_device(int addrbits, int vecmult)
     , m_nspseg(0), m_nspoff(0), m_irq_req(0), m_irq_vec(0), m_op_valid(0)
     , m_nmi_state(0), m_mi(0), m_halt(false), m_icount(0), m_total_cycles(0)
     , m_vector_mult(vecmult)
-    , m_program_region(nullptr), m_data_region(nullptr), m_stack_region(nullptr)
-    , m_io_ports(nullptr), m_trace(false), m_reg_trace(false), m_disasm(nullptr)
+    , m_program_bus(nullptr), m_data_bus(nullptr), m_stack_bus(nullptr)
+    , m_io_bus(nullptr), m_trace(false), m_reg_trace(false), m_disasm(nullptr)
 {
     (void)addrbits;  // May be used for Z8001 in future
     clear_internal_state();
@@ -61,29 +71,29 @@ z8002_device::~z8002_device()
     delete m_disasm;
 }
 
-void z8002_device::set_program_memory(MemoryRegion* mem)
+void z8002_device::set_program_memory(z8000_memory_bus* mem)
 {
-    m_program_region = mem;
-    m_cache.set_region(mem);
-    m_opcache.set_region(mem);
-    m_program.set_region(mem);
+    m_program_bus = mem;
+    m_cache.bus = mem;
+    m_opcache.bus = mem;
+    m_program.bus = mem;
 }
 
-void z8002_device::set_data_memory(MemoryRegion* mem)
+void z8002_device::set_data_memory(z8000_memory_bus* mem)
 {
-    m_data_region = mem;
-    m_data.set_region(mem);
+    m_data_bus = mem;
+    m_data.bus = mem;
 }
 
-void z8002_device::set_stack_memory(MemoryRegion* mem)
+void z8002_device::set_stack_memory(z8000_memory_bus* mem)
 {
-    m_stack_region = mem;
-    m_stack.set_region(mem);
+    m_stack_bus = mem;
+    m_stack.bus = mem;
 }
 
-void z8002_device::set_io(IOPorts* io)
+void z8002_device::set_io(z8000_io_bus* io)
 {
-    m_io_ports = io;
+    m_io_bus = io;
 }
 
 bool z8002_device::get_segmented_mode() const
@@ -211,20 +221,20 @@ uint32_t z8001_device::adjust_addr_for_nonseg_mode(uint32_t addr)
     }
 }
 
-uint8_t z8002_device::RDMEM_B(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr)
+uint8_t z8002_device::RDMEM_B(mem_specific &space, uint32_t addr)
 {
     addr = adjust_addr_for_nonseg_mode(addr);
     return space.read_byte(addr);
 }
 
-uint16_t z8002_device::RDMEM_W(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr)
+uint16_t z8002_device::RDMEM_W(mem_specific &space, uint32_t addr)
 {
     addr = adjust_addr_for_nonseg_mode(addr);
     addr &= ~1;
     return space.read_word(addr);
 }
 
-uint32_t z8002_device::RDMEM_L(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr)
+uint32_t z8002_device::RDMEM_L(mem_specific &space, uint32_t addr)
 {
     uint32_t result;
     addr = adjust_addr_for_nonseg_mode(addr);
@@ -233,21 +243,21 @@ uint32_t z8002_device::RDMEM_L(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific
     return result + space.read_word(addr_add(addr, 2));
 }
 
-void z8002_device::WRMEM_B(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr, uint8_t value)
+void z8002_device::WRMEM_B(mem_specific &space, uint32_t addr, uint8_t value)
 {
     addr = adjust_addr_for_nonseg_mode(addr);
     uint16_t value16 = value | (value << 8);
     space.write_word(addr & ~1, value16, BIT(addr, 0) ? 0x00ff : 0xff00);
 }
 
-void z8002_device::WRMEM_W(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr, uint16_t value)
+void z8002_device::WRMEM_W(mem_specific &space, uint32_t addr, uint16_t value)
 {
     addr = adjust_addr_for_nonseg_mode(addr);
     addr &= ~1;
     space.write_word(addr, value);
 }
 
-void z8002_device::WRMEM_L(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &space, uint32_t addr, uint32_t value)
+void z8002_device::WRMEM_L(mem_specific &space, uint32_t addr, uint32_t value)
 {
     addr = adjust_addr_for_nonseg_mode(addr);
     addr &= ~1;
@@ -257,22 +267,22 @@ void z8002_device::WRMEM_L(memory_access<23, 1, 0, ENDIANNESS_BIG>::specific &sp
 
 uint8_t z8002_device::RDPORT_B(int mode, uint16_t addr)
 {
-    return m_io_ports->read_byte_mode(addr, mode);
+    return m_io_bus->read_byte(addr, mode);
 }
 
 uint16_t z8002_device::RDPORT_W(int mode, uint16_t addr)
 {
-    return m_io_ports->read_word_mode(addr, mode);
+    return m_io_bus->read_word(addr, mode);
 }
 
 void z8002_device::WRPORT_B(int mode, uint16_t addr, uint8_t value)
 {
-    m_io_ports->write_byte_mode(addr, value, mode);
+    m_io_bus->write_byte(addr, value, mode);
 }
 
 void z8002_device::WRPORT_W(int mode, uint16_t addr, uint16_t value)
 {
-    m_io_ports->write_word_mode(addr, value, mode);
+    m_io_bus->write_word(addr, value, mode);
 }
 
 void z8002_device::cycles(int cyc)
@@ -512,10 +522,10 @@ void z8002_device::reset()
 
 void z8002_device::trace_instruction()
 {
-    // Create a data buffer from program memory for the disassembler
+    // Create a data buffer from program memory bus for the disassembler
     data_buffer opcodes;
-    if (m_program_region) {
-        opcodes.set(m_program_region->data(), m_program_region->size());
+    if (m_program_bus) {
+        opcodes.set_bus(m_program_bus);
     }
 
     // Disassemble the instruction
@@ -527,8 +537,8 @@ void z8002_device::trace_instruction()
     // Print PC and opcode bytes
     printf("PC=%04X:", pc);
     for (offs_t i = 0; i < size; i += 2) {
-        if (m_program_region) {
-            printf(" %04X", m_program_region->read_word(pc + i));
+        if (m_program_bus) {
+            printf(" %04X", m_program_bus->read_word(pc + i));
         }
     }
 
@@ -543,11 +553,11 @@ void z8002_device::trace_instruction()
 
 void z8002_device::run(int max_cycles)
 {
-    if (!m_program_region) {
+    if (!m_program_bus) {
         fprintf(stderr, "Error: No program memory attached to CPU\n");
         return;
     }
-    if (!m_io_ports) {
+    if (!m_io_bus) {
         fprintf(stderr, "Error: No I/O attached to CPU\n");
         return;
     }

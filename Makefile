@@ -1,6 +1,7 @@
 # Z8000 Standalone Emulator Makefile
 
 CXX ?= c++
+AR ?= ar
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude
 
 # Z8000 cross-toolchain
@@ -21,16 +22,23 @@ CXXFLAGS_DEBUG = $(CXXFLAGS) -g -O0 -DDEBUG
 # Release build
 CXXFLAGS_RELEASE = $(CXXFLAGS) -O2 -DNDEBUG
 
-# Source files
-SOURCES = $(SRCDIR)/main.cpp $(SRCDIR)/z8000.cpp tools/8000dasm.cpp
+# Library sources (CPU core + disassembler)
+LIB_SOURCES = $(SRCDIR)/z8000.cpp tools/8000dasm.cpp
+LIB_OBJECTS = $(BUILDDIR)/z8000.o $(BUILDDIR)/8000dasm.o
+
+# Driver sources
+DRIVER_SOURCES = $(SRCDIR)/main.cpp
+
+# All headers (for dependency tracking)
 HEADERS = $(wildcard $(INCDIR)/*.h) $(wildcard $(INCDIR)/*.hxx) tools/8000dasm.h
 
 # Output
+LIBRARY = $(BUILDDIR)/libz8000.a
 TARGET = $(BUILDDIR)/z8000emu
 TEST_BIN = $(TESTDIR)/test.bin
 REGRESSION_BIN = $(TESTDIR)/test_instructions.bin
 
-.PHONY: all debug release clean run-test run-test-verbose run-regression help dirs
+.PHONY: all debug release clean run-test run-test-verbose run-regression help dirs libz8000
 
 # Default target (debug)
 all: debug
@@ -40,13 +48,30 @@ dirs:
 	@mkdir -p $(BUILDDIR) $(TESTDIR)
 
 debug: CXXFLAGS := $(CXXFLAGS_DEBUG)
-debug: dirs $(TARGET)
+debug: dirs $(LIBRARY) $(TARGET)
 
 release: CXXFLAGS := $(CXXFLAGS_RELEASE)
-release: dirs $(TARGET)
+release: dirs $(LIBRARY) $(TARGET)
 
-$(TARGET): $(SOURCES) $(HEADERS)
-	$(CXX) $(CXXFLAGS) -o $@ $(SOURCES)
+# Library target
+libz8000: CXXFLAGS := $(CXXFLAGS_DEBUG)
+libz8000: dirs $(LIBRARY)
+
+$(BUILDDIR)/z8000.o: $(SRCDIR)/z8000.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILDDIR)/8000dasm.o: tools/8000dasm.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(LIBRARY): $(LIB_OBJECTS)
+	$(AR) rcs $@ $^
+
+# Driver target - links against library
+$(BUILDDIR)/main.o: $(SRCDIR)/main.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TARGET): $(BUILDDIR)/main.o $(LIBRARY)
+	$(CXX) $(CXXFLAGS) -o $@ $(BUILDDIR)/main.o -L$(BUILDDIR) -lz8000
 
 clean:
 	rm -rf $(BUILDDIR)
@@ -129,6 +154,7 @@ help:
 	@echo "  all (default)        - Build debug version"
 	@echo "  debug                - Build with debug symbols"
 	@echo "  release              - Build optimized version"
+	@echo "  libz8000             - Build only the library (build/libz8000.a)"
 	@echo "  clean                - Remove built files"
 	@echo ""
 	@echo "Test targets:"
@@ -138,7 +164,9 @@ help:
 	@echo "  run-regression-verbose - Run regression with trace on failure"
 	@echo "  run-regression-trace   - Run regression with full instruction trace"
 	@echo ""
-	@echo "Output: $(TARGET)"
+	@echo "Output:"
+	@echo "  $(LIBRARY)           - Z8000 CPU core library"
+	@echo "  $(TARGET)            - Emulator driver (links against library)"
 	@echo ""
 	@echo "Z8K toolchain: $(Z8K_PREFIX)as/ld/objcopy"
 	@echo "  Override with: make Z8K_PREFIX=z8k-elf-"
