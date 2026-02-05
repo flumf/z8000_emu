@@ -2,10 +2,14 @@
 
 A standalone Z8000 CPU emulator extracted from MAME, designed for testing and debugging Z8000 code without the full MAME environment.
 
+The CPU core is built as a reusable library (`libz8000.a`) with abstract memory/IO interfaces, so it can be embedded in different emulators (e.g., an M20 operating system emulator with 512KB segmented memory).
+
 ## Features
 
-- Z8002 (non-segmented) CPU emulation
+- Z8002 (non-segmented) and Z8001 (segmented) CPU emulation
+- Reusable library with abstract bus interfaces (`z8000_memory_bus`, `z8000_io_bus`)
 - Instruction tracing with disassembly
+- Register state tracing
 - Memory access tracing
 - I/O port tracing with console I/O support
 - Separate program/data/stack memory spaces (can be unified)
@@ -14,13 +18,16 @@ A standalone Z8000 CPU emulator extracted from MAME, designed for testing and de
 ## Building
 
 ```bash
-make              # Debug build (default)
+make              # Debug build (library + driver)
 make release      # Optimized build
+make libz8000     # Build only the library
 make run-test     # Build and run test
 make clean        # Remove built files
 ```
 
-Output binary: `build/z8000emu`
+Output:
+- `build/libz8000.a` - Z8000 CPU core library
+- `build/z8000emu` - Emulator driver (links against library)
 
 Requirements: C++17 compatible compiler (g++ or clang++)
 
@@ -147,24 +154,63 @@ Use `-i` flag to trace I/O operations.
 ```
 z8000_emu/
 ├── src/
-│   ├── main.cpp          # Command-line interface and loader
-│   └── z8000.cpp         # CPU implementation (adapted from MAME)
+│   ├── main.cpp          # Driver: command-line interface and loader
+│   └── z8000.cpp         # Library: CPU implementation (adapted from MAME)
 ├── include/
-│   ├── emu.h             # MAME compatibility shim
-│   ├── memory.h          # Memory and I/O subsystem
-│   ├── z8000.h           # CPU class definition
-│   ├── z8000cpu.h        # Register and flag definitions
-│   ├── z8000dab.h        # DAB instruction lookup table
-│   ├── z8000ops.hxx      # Opcode implementations
-│   └── z8000tbl.hxx      # Opcode dispatch table
+│   ├── z8000_intf.h      # Library: abstract bus interfaces
+│   ├── z8000.h           # Library: CPU class definition
+│   ├── emu.h             # Library: basic types, MAME compatibility shim
+│   ├── z8000cpu.h        # Library: register and flag definitions
+│   ├── z8000dab.h        # Library: DAB instruction lookup table
+│   ├── z8000ops.hxx      # Library: opcode implementations
+│   ├── z8000tbl.hxx      # Library: opcode dispatch table
+│   └── memory.h          # Driver: flat-array memory and loopback I/O
 ├── tools/
-│   ├── 8000dasm.cpp      # Disassembler (from MAME)
+│   ├── 8000dasm.cpp      # Library: disassembler (from MAME)
 │   ├── 8000dasm.h
 │   └── makedab.cpp       # DAB table generator
 ├── build/                # Compiled output (created by make)
+│   ├── libz8000.a        # CPU core library
+│   └── z8000emu          # Emulator driver
 ├── test/                 # Test binaries and assembly
 ├── Makefile
 └── README.md
+```
+
+## Embedding the Library
+
+To use `libz8000.a` in another project, implement the abstract bus interfaces and link against the library:
+
+```cpp
+#include "z8000.h"
+#include "z8000_intf.h"
+
+class MyMemory : public z8000_memory_bus {
+    uint8_t ram[512 * 1024];
+    uint8_t read_byte(uint32_t addr) override { return ram[addr]; }
+    uint16_t read_word(uint32_t addr) override { return (ram[addr] << 8) | ram[addr+1]; }
+    void write_byte(uint32_t addr, uint8_t val) override { ram[addr] = val; }
+    void write_word(uint32_t addr, uint16_t val) override { ram[addr] = val >> 8; ram[addr+1] = val; }
+    void write_word(uint32_t addr, uint16_t val, uint16_t mask) override {
+        uint16_t old = read_word(addr);
+        write_word(addr, (old & ~mask) | (val & mask));
+    }
+};
+
+class MyIO : public z8000_io_bus {
+    uint8_t read_byte(uint16_t addr, int mode) override { return 0; }
+    uint16_t read_word(uint16_t addr, int mode) override { return 0; }
+    void write_byte(uint16_t addr, uint8_t val, int mode) override {}
+    void write_word(uint16_t addr, uint16_t val, int mode) override {}
+};
+
+MyMemory mem;
+MyIO io;
+z8001_device cpu;       // Z8001 segmented mode (or z8002_device)
+cpu.set_memory(&mem);   // all spaces use same memory
+cpu.set_io(&io);
+cpu.reset();
+cpu.run(1000);          // run 1000 cycles
 ```
 
 ## Origin
