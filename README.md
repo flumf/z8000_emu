@@ -163,6 +163,31 @@ Or use the built-in test target:
 make run-test
 ```
 
+## Regression Tests
+
+The `test/` directory contains an instruction regression test suite (`test_instructions.s`) with 201 tests covering:
+
+- **Data Movement**: LD, LDB, LDL, LDK, ST, STB, PUSH, POP, PUSHL, POPL
+- **Arithmetic**: ADD, SUB, ADDB, SUBB, ADDL, SUBL, ADC, SBC, INC, DEC, NEG, COM, CP, CPB, CPL
+- **Multiply/Divide**: MULT, MULTL, DIV, DIVL (including flag tests and overflow cases)
+- **Sign Extension**: EXTSB, EXTS, EXTSL
+- **Logical**: AND, OR, XOR, ANDB, ORB, XORB
+- **Bit Manipulation**: BIT, SET, RES (register, indirect, direct, indexed)
+- **Shift/Rotate**: RL, RR, RLC, RRC, SLA, SRA, SLL, SRL
+- **Control Flow**: JP, JR, CALL, CALR, RET, DJNZ, NOP
+- **Block Operations**: LDI, LDIR, LDD, LDDR, CPI, CPIR, CPD, CPDR (word and byte)
+- **I/O**: IN, INB, OUT, OUTB, SIN, SINB, SOUT, SOUTB, INIR, OTIR
+
+Run the tests:
+
+```bash
+make run-regression             # Run tests, show pass/fail summary
+make run-regression-verbose     # Show trace on failure
+make run-regression-trace       # Full instruction trace
+```
+
+Test results are stored in registers: R0=passed, R1=failed, R2=last test number, R3=0xDEAD (all passed) or 0xFA11 (failures).
+
 ## Console I/O
 
 The emulator provides console I/O on port 0x0000:
@@ -194,7 +219,10 @@ z8000_emu/
 ├── build/                # Compiled output (created by make)
 │   ├── libz8000.a        # CPU core library
 │   └── z8000emu          # Emulator driver
-├── test/                 # Test binaries and assembly
+├── test/
+│   ├── test_instructions.s    # Instruction regression test suite (201 tests)
+│   ├── run_regression.sh      # Test driver script
+│   └── test.bin               # Simple 4-instruction smoke test
 ├── Makefile
 └── README.md
 ```

@@ -733,7 +733,9 @@ uint32_t z8002_device::DIVW(uint32_t dest, uint16_t value)
 			SET_V;
 			if (temp >= -0x8000 && temp <= 0x7fff)
 			{
-				result = (temp < 0) ? -1 : 0;
+				/* CASE 4: quotient is a 17-bit two's complement number.
+				   Register holds lower 16 bits of actual quotient;
+				   S flag is the MSB (sign extension bit). */
 				CHK_XXXW_ZS;
 				SET_C;
 			}
@@ -777,7 +779,9 @@ uint64_t z8002_device::DIVL(uint64_t dest, uint32_t value)
 			SET_V;
 			if (temp >= -0x80000000LL && temp <= 0x7fffffff)
 			{
-				result = (temp < 0) ? -1 : 0;
+				/* CASE 4: quotient is a 33-bit two's complement number.
+				   Register holds lower 32 bits of actual quotient;
+				   S flag is the MSB (sign extension bit). */
 				CHK_XXXL_ZS;
 				SET_C;
 			}
@@ -5701,7 +5705,7 @@ void z8002_device::ZB1_dddd_0000()
 void z8002_device::ZB1_dddd_0111()
 {
 	GET_DST(OP0,NIB2);
-	RQ(dst) = (int64_t)(int32_t)RQ(dst);
+	RL(dst) = (int32_t)RL(dst + 2) < 0 ? 0xffffffffUL : 0x00000000UL;
 }
 
 /******************************************

@@ -2,7 +2,7 @@
 # Z8000 Instruction Test Suite
 # File: test_instructions.s
 #
-# Comprehensive test of Z8000 instructions (181 tests):
+# Comprehensive test of Z8000 instructions (201 tests):
 #
 # Data Movement:
 #   - LD (register, immediate, indirect, direct address, indexed, base)
@@ -22,6 +22,7 @@
 #   - MULT, MULTL (multiply 16x16->32, 32x32->64)
 #   - DIV, DIVL (divide 32/16, 64/32)
 #   - NEG, COM, NEGB, COMB (negate, complement)
+#   - EXTSB, EXTS, EXTSL (sign extend byte/word/long)
 #   - CP, CPB, CPL (compare word, byte, long)
 #
 # Logical:
@@ -3797,6 +3798,303 @@ test_multl_highpair_fail:
         inc     r1, #1
         jp      tests_done
 test_multl_highpair_end:
+
+# =============================================================================
+# TEST 188: EXTSL RQd - Sign Extend Long to Quad (positive value)
+# RQ4 = R4:R5:R6:R7, low long = R6:R7 = 0x12345678 (positive)
+# After EXTSL: R4:R5 = 0x00000000
+# =============================================================================
+test_extsl_pos:
+        ld      r2, #188            ! Test 188
+        ld      r4, #0xAAAA         ! Set R4 to non-zero to verify it changes
+        ld      r5, #0xBBBB         ! Set R5 to non-zero to verify it changes
+        ld      r6, #0x1234         ! R6 = 0x1234 (bit 15 = 0, positive)
+        ld      r7, #0x5678         ! R7 = 0x5678
+        extsl   rq4                 ! Extend sign: R4:R5 should become 0x0000:0x0000
+        cp      r4, #0x0000         ! High word of high long should be 0
+        jr      nz, test_extsl_pos_fail
+        cp      r5, #0x0000         ! Low word of high long should be 0
+        jr      z, test_extsl_pos_pass
+test_extsl_pos_fail:
+        inc     r1, #1
+        jp      tests_done
+test_extsl_pos_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 189: EXTSL RQd - Sign Extend Long to Quad (negative value)
+# RQ8 = R8:R9:R10:R11, low long = R10:R11 = 0x80001234 (negative)
+# After EXTSL: R8:R9 = 0xFFFFFFFF
+# =============================================================================
+test_extsl_neg:
+        ld      r2, #189            ! Test 189
+        ld      r8, #0x0000         ! Set R8 to zero to verify it changes to 0xFFFF
+        ld      r9, #0x0000         ! Set R9 to zero to verify it changes to 0xFFFF
+        ld      r10, #0x8000        ! R10 = 0x8000 (bit 15 = 1, negative)
+        ld      r11, #0x1234        ! R11 = 0x1234
+        extsl   rq8                 ! Extend sign: R8:R9 should become 0xFFFF:0xFFFF
+        cp      r8, #0xFFFF         ! High word of high long should be 0xFFFF
+        jr      nz, test_extsl_neg_fail
+        cp      r9, #0xFFFF         ! Low word of high long should be 0xFFFF
+        jr      z, test_extsl_neg_pass
+test_extsl_neg_fail:
+        inc     r1, #1
+        jp      tests_done
+test_extsl_neg_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 190: MULT flags - small product fits signed 16-bit -> C=0
+# 10 * 10 = 100 (fits in [-32768, 32767])
+# =============================================================================
+test_mult_flags_small:
+        ld      r2, #190            ! Test 190
+        ld      r5, #10
+        ld      r6, #10
+        resflg  c
+        mult    rr4, r6             ! 10 * 10 = 100
+        jr      c, test_mult_flags_small_fail
+        jr      test_mult_flags_small_pass
+test_mult_flags_small_fail:
+        inc     r1, #1
+        jp      tests_done
+test_mult_flags_small_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 191: MULT flags - product exceeds signed 16-bit -> C=1
+# 200 * 200 = 40000 (> 32767)
+# =============================================================================
+test_mult_flags_ovf:
+        ld      r2, #191            ! Test 191
+        ld      r5, #200
+        ld      r6, #200
+        resflg  c
+        mult    rr4, r6             ! 200 * 200 = 40000
+        jr      c, test_mult_flags_ovf_pass
+        inc     r1, #1
+        jp      tests_done
+test_mult_flags_ovf_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 192: MULT flags - zero product -> Z=1, C=0
+# 0 * 1234 = 0
+# =============================================================================
+test_mult_flags_zero:
+        ld      r2, #192            ! Test 192
+        ld      r5, #0
+        ld      r6, #1234
+        resflg  c
+        mult    rr4, r6             ! 0 * 1234 = 0
+        jr      c, test_mult_flags_zero_fail
+        jr      nz, test_mult_flags_zero_fail
+        jr      test_mult_flags_zero_pass
+test_mult_flags_zero_fail:
+        inc     r1, #1
+        jp      tests_done
+test_mult_flags_zero_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 193: MULT flags - negative product fits signed 16-bit -> C=0, S=1
+# -1 * 100 = -100 (fits in [-32768, 32767])
+# =============================================================================
+test_mult_flags_neg:
+        ld      r2, #193            ! Test 193
+        ld      r5, #0xFFFF         ! -1
+        ld      r6, #100
+        resflg  c
+        mult    rr4, r6             ! -1 * 100 = -100
+        jr      c, test_mult_flags_neg_fail
+        jr      test_mult_flags_neg_pass
+test_mult_flags_neg_fail:
+        inc     r1, #1
+        jp      tests_done
+test_mult_flags_neg_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 194: MULTL flags - product fits signed 32-bit -> C=0
+# 100 * 1000 = 100000 (fits in signed 32-bit)
+# =============================================================================
+test_multl_flags_small:
+        ld      r2, #194            ! Test 194
+        ld      r6, #0x0000
+        ld      r7, #100
+        ld      r8, #0x0000
+        ld      r9, #1000
+        resflg  c
+        multl   rq4, rr8            ! 100 * 1000 = 100000
+        jr      c, test_multl_flags_small_fail
+        jr      test_multl_flags_small_pass
+test_multl_flags_small_fail:
+        inc     r1, #1
+        jp      tests_done
+test_multl_flags_small_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 195: MULTL flags - product exceeds signed 32-bit -> C=1
+# 0x10000 * 0x10000 = 0x100000000 (> 0x7FFFFFFF)
+# =============================================================================
+test_multl_flags_ovf:
+        ld      r2, #195            ! Test 195
+        ld      r6, #0x0001
+        ld      r7, #0x0000         ! 0x10000
+        ld      r8, #0x0001
+        ld      r9, #0x0000         ! 0x10000
+        resflg  c
+        multl   rq4, rr8            ! 0x10000 * 0x10000 = 0x100000000
+        jr      c, test_multl_flags_ovf_pass
+        inc     r1, #1
+        jp      tests_done
+test_multl_flags_ovf_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 196: MULTL flags - zero product -> Z=1, C=0, S=0
+# 0 * 12345 = 0
+# =============================================================================
+test_multl_flags_zero:
+        ld      r2, #196            ! Test 196
+        ld      r6, #0x0000
+        ld      r7, #0x0000
+        ld      r8, #0x0000
+        ld      r9, #12345
+        resflg  c
+        multl   rq4, rr8            ! 0 * 12345 = 0
+        jr      c, test_multl_flags_zero_fail
+        jr      nz, test_multl_flags_zero_fail
+        jr      mi, test_multl_flags_zero_fail
+        jr      test_multl_flags_zero_pass
+test_multl_flags_zero_fail:
+        inc     r1, #1
+        jp      tests_done
+test_multl_flags_zero_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 197: DIV CASE 4 - 32768/1 = 32768 (positive, overflow) -> V=1, C=1
+# 32768 doesn't fit in signed 16-bit, but fits unsigned
+# =============================================================================
+test_div_case4_pos:
+        ld      r2, #197            ! Test 197
+        ld      r4, #0              ! High word
+        ld      r5, #0x8000         ! Low word = 32768
+        ld      r6, #1              ! Divisor = 1
+        resflg  v
+        resflg  c
+        div     rr4, r6             ! 32768 / 1 = 32768 -> CASE 4
+        jr      ov, test_div_case4_pos_v
+        inc     r1, #1
+        jp      tests_done
+test_div_case4_pos_v:
+        jr      c, test_div_case4_pos_pass
+        inc     r1, #1
+        jp      tests_done
+test_div_case4_pos_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 198: DIV CASE 1 - (-32768)/1 = -32768 (INT16_MIN, valid) -> V=0
+# -32768 fits in signed 16-bit
+# =============================================================================
+test_div_case1_min:
+        ld      r2, #198            ! Test 198
+        ld      r4, #0xFFFF         ! High word = -1 (sign extension)
+        ld      r5, #0x8000         ! Low word -> full dividend = -32768
+        ld      r6, #1              ! Divisor = 1
+        resflg  v
+        div     rr4, r6             ! -32768 / 1 = -32768 -> valid
+        jr      ov, test_div_case1_min_fail
+        cp      r5, #0x8000         ! Quotient = -32768 (0x8000)
+        jr      nz, test_div_case1_min_fail
+        cp      r4, #0              ! Remainder = 0
+        jr      nz, test_div_case1_min_fail
+        jr      test_div_case1_min_pass
+test_div_case1_min_fail:
+        inc     r1, #1
+        jp      tests_done
+test_div_case1_min_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 199: DIV CASE 4 - 65535/1 = 65535 (positive, overflow) -> V=1, C=1
+# 65535 doesn't fit in signed 16-bit
+# =============================================================================
+test_div_case4_large:
+        ld      r2, #199            ! Test 199
+        ld      r4, #0              ! High word
+        ld      r5, #0xFFFF         ! Low word = 65535
+        ld      r6, #1              ! Divisor = 1
+        resflg  v
+        resflg  c
+        div     rr4, r6             ! 65535 / 1 = 65535 -> CASE 4
+        jr      ov, test_div_case4_large_v
+        inc     r1, #1
+        jp      tests_done
+test_div_case4_large_v:
+        jr      c, test_div_case4_large_pass
+        inc     r1, #1
+        jp      tests_done
+test_div_case4_large_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 200: DIVL CASE 4 - 0x100000000/2 = 0x80000000 (positive, overflow)
+# -> V=1, C=1 (quotient doesn't fit signed 32-bit)
+# =============================================================================
+test_divl_case4_pos:
+        ld      r2, #200            ! Test 200
+        ld      r4, #0x0000
+        ld      r5, #0x0001         ! Dividend high long = 1
+        ld      r6, #0x0000
+        ld      r7, #0x0000         ! Dividend low long = 0 (total = 0x100000000)
+        ld      r8, #0x0000
+        ld      r9, #0x0002         ! Divisor = 2
+        resflg  v
+        resflg  c
+        divl    rq4, rr8
+        jr      ov, test_divl_case4_pos_v
+        inc     r1, #1
+        jp      tests_done
+test_divl_case4_pos_v:
+        jr      c, test_divl_case4_pos_pass
+        inc     r1, #1
+        jp      tests_done
+test_divl_case4_pos_pass:
+        inc     r0, #1
+
+# =============================================================================
+# TEST 201: DIVL CASE 1 - (-0x80000000)/1 = -0x80000000 (INT32_MIN, valid)
+# -> V=0 (quotient fits signed 32-bit)
+# =============================================================================
+test_divl_case1_min:
+        ld      r2, #201            ! Test 201
+        ld      r4, #0xFFFF
+        ld      r5, #0xFFFF         ! Dividend high long = -1 (sign extension)
+        ld      r6, #0x8000
+        ld      r7, #0x0000         ! Dividend low long = 0x80000000 (total = -0x80000000)
+        ld      r8, #0x0000
+        ld      r9, #0x0001         ! Divisor = 1
+        resflg  v
+        divl    rq4, rr8
+        jr      ov, test_divl_case1_min_fail
+        cp      r6, #0x8000         ! Quotient high = 0x8000
+        jr      nz, test_divl_case1_min_fail
+        cp      r7, #0x0000         ! Quotient low = 0x0000
+        jr      nz, test_divl_case1_min_fail
+        cp      r4, #0x0000         ! Remainder high = 0
+        jr      nz, test_divl_case1_min_fail
+        cp      r5, #0x0000         ! Remainder low = 0
+        jr      nz, test_divl_case1_min_fail
+        jr      test_divl_case1_min_pass
+test_divl_case1_min_fail:
+        inc     r1, #1
+        jp      tests_done
+test_divl_case1_min_pass:
+        inc     r0, #1
 
 # =============================================================================
 # All tests complete - store results
