@@ -6785,7 +6785,7 @@ void z8002_device::ZBC_aaaa_bbbb()
 {
 	uint8_t b = m_op[0] & 15;
 	uint8_t a = (m_op[0] >> 4) & 15;
-	uint8_t tmp = RB(b);
+	uint8_t tmp = RB(a);
 	RB(a) = (RB(a) >> 4) | (RB(b) << 4);
 	RB(b) = (RB(b) & 0xf0) | (tmp & 0x0f);
 	if (RB(b)) CLR_Z; else SET_Z;
