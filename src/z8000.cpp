@@ -507,7 +507,7 @@ void z8002_device::init_tables()
                         ((((i>>7)^(i>>6)^(i>>5)^(i>>4)^(i>>3)^(i>>2)^(i>>1)^i) & 1) ? 0 : F_PV);
 
     for (const Z8000_init *opc = table; opc->size; opc++)
-        for (u32 val = opc->beg; val <= opc->end; val += opc->step)
+        for (int val = opc->beg; val <= opc->end; val += opc->step)
             z8000_exec[val] = opc - table;
 }
 

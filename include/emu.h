@@ -107,9 +107,9 @@ public:
     template<int N>
     class array {
     public:
-        void resolve_all_safe(T default_val) {}
-        T operator[](int index) const { return m_default; }
-        T operator()(int param) const { return m_default; }
+        void resolve_all_safe(T) {}
+        T operator[](int) const { return m_default; }
+        T operator()(int) const { return m_default; }
     private:
         T m_default = 0;
     };
@@ -118,7 +118,7 @@ public:
 class devcb_write_line {
 public:
     void resolve_safe() {}
-    void operator()(int state) {}
+    void operator()(int) {}
 };
 
 using devcb_read16 = devcb_read<u16>;
@@ -177,7 +177,10 @@ namespace util {
 template<typename... Args>
 void stream_format(std::ostream& stream, const char* fmt, Args... args) {
     char buf[256];
-    snprintf(buf, sizeof(buf), fmt, args...);
+    if constexpr (sizeof...(args) > 0)
+        snprintf(buf, sizeof(buf), fmt, args...);
+    else
+        snprintf(buf, sizeof(buf), "%s", fmt);
     stream << buf;
 }
 
