@@ -6,8 +6,9 @@
 #include <cstring>
 #include <getopt.h>
 
-#include <z8000/memory.h>
 #include <z8000/z8000.h>
+
+#include "memory.h"
 
 void print_usage(const char* progname) {
     printf("Z8000 Standalone Emulator\n");
